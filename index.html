@@ -16,40 +16,85 @@
 
       gtag('config', 'G-PGR4Y0TVNP');
     </script>
-  
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live AI Age Detector</title>
     <!-- Load TensorFlow.js and Face-API.js from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/dist/face-api.min.js"></script>
     <style>
-        body {
+        * {
+            box-sizing: border-box;
             margin: 0;
-            background: #1a1a1a;
-            color: #ffffff;
+            padding: 0;
+        }
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
-            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
         }
-        h2 { margin-bottom: 10px; }
+        h2 {
+            margin-bottom: 12px;
+            font-weight: 600;
+            color: #38bdf8;
+        }
+        #loading {
+            font-size: 16px;
+            color: #facc15;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
         #container {
             position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            width: 640px;
+            height: 480px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            background: #1e293b;
         }
         video, canvas {
             position: absolute;
-            border-radius: 8px;
+            top: 0;
+            left: 0;
+            width: 640px;
+            height: 480px;
         }
-        #loading {
-            font-size: 18px;
-            color: #00ffcc;
-            margin-bottom: 15px;
+        /* Results Card Below Video */
+        .results-card {
+            margin-top: 24px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 16px 32px;
+            display: flex;
+            gap: 40px;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+        .stat-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #38bdf8;
         }
     </style>
 </head>
@@ -58,29 +103,43 @@
     <h2>Real-Time Camera Age Detector</h2>
     <div id="loading">Loading AI Models, please wait...</div>
     
+    <!-- Video Feed & Overlay Container -->
     <div id="container">
         <video id="video" width="640" height="480" autoplay muted></video>
+    </div>
+
+    <!-- On-Screen Age & Gender Display Card -->
+    <div class="results-card">
+        <div class="stat-box">
+            <span class="stat-label">Estimated Age</span>
+            <span id="age-display" class="stat-value">--</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-label">Gender</span>
+            <span id="gender-display" class="stat-value" style="text-transform: capitalize;">--</span>
+        </div>
     </div>
 
     <script>
         const video = document.getElementById('video');
         const loadingDiv = document.getElementById('loading');
+        const ageDisplay = document.getElementById('age-display');
+        const genderDisplay = document.getElementById('gender-display');
 
         async function loadModels() {
-            // Public GitHub repository hosting face-api.js weights
+            // Public GitHub repository hosting face-api.js model weights
             const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
             
             try {
                 await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
                 await faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL);
                 
-                loadingDiv.innerText = "Models Loaded! Starting camera...";
-                setTimeout(() => loadingDiv.style.display = 'none', 1500);
+                loadingDiv.innerText = "Models loaded successfully! Accessing camera...";
                 
                 startVideo();
             } catch (error) {
-                loadingDiv.innerText = "Error loading AI models. Check your connection.";
-                console.error(error);
+                loadingDiv.innerText = "Error loading AI models. Check internet connection.";
+                console.error("Model loading error:", error);
             }
         }
 
@@ -88,11 +147,12 @@
             navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
                 .then(stream => {
                     video.srcObject = stream;
+                    loadingDiv.style.display = 'none';
                 })
                 .catch(err => {
                     loadingDiv.style.display = 'block';
                     loadingDiv.innerText = "Camera access denied or unavailable.";
-                    console.error(err);
+                    console.error("Camera access error:", err);
                 });
         }
 
@@ -115,25 +175,33 @@
                 if (detections) {
                     const resizedDetections = faceapi.resizeResults(detections, displaySize);
                     
-                    // Draw bounding box
+                    // 1. Draw bounding box on face canvas
                     faceapi.draw.drawDetections(canvas, resizedDetections);
                     
-                    // Extract age and gender info
+                    // 2. Extract values
                     const age = Math.round(resizedDetections.age);
                     const gender = resizedDetections.gender;
                     const box = resizedDetections.detection.box;
                     
-                    // Render custom text box with age
+                    // 3. Render label directly above the face box on screen
                     const drawBox = new faceapi.draw.DrawTextField(
                         [`Age: ${age}`, `Gender: ${gender}`],
-                        { x: box.x, y: box.y - 12 }
+                        { x: box.x, y: box.y - 10 }
                     );
                     drawBox.draw(canvas);
+
+                    // 4. Update the HTML card below the video
+                    ageDisplay.innerText = age;
+                    genderDisplay.innerText = gender;
+                } else {
+                    // Reset text when no face is in frame
+                    ageDisplay.innerText = "--";
+                    genderDisplay.innerText = "--";
                 }
-            }, 150); // Runs detection every 150ms for smooth performance
+            }, 150); // Runs every 150ms
         });
 
-        // Initialize script
+        // Initialize model loading
         loadModels();
     </script>
 </body>
