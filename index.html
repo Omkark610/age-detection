@@ -20,9 +20,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live AI Age Detector</title>
-    <!-- Load TensorFlow.js and Face-API.js from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/dist/face-api.min.js"></script>
+    <!-- Modern face-api.js bundle with built-in tfjs -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -67,7 +66,6 @@
             width: 640px;
             height: 480px;
         }
-        /* Results Card Below Video */
         .results-card {
             margin-top: 24px;
             background: #1e293b;
@@ -101,14 +99,12 @@
 <body>
 
     <h2>Real-Time Camera Age Detector</h2>
-    <div id="loading">Loading AI Models, please wait...</div>
+    <div id="loading">Loading AI Models...</div>
     
-    <!-- Video Feed & Overlay Container -->
     <div id="container">
-        <video id="video" width="640" height="480" autoplay muted></video>
+        <video id="video" width="640" height="480" autoplay muted playsinline></video>
     </div>
 
-    <!-- On-Screen Age & Gender Display Card -->
     <div class="results-card">
         <div class="stat-box">
             <span class="stat-label">Estimated Age</span>
@@ -126,19 +122,21 @@
         const ageDisplay = document.getElementById('age-display');
         const genderDisplay = document.getElementById('gender-display');
 
-        async function loadModels() {
-            // Public GitHub repository hosting face-api.js model weights
-            const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+        async function init() {
+            // Reliable CORS-enabled jsDelivr CDN endpoint for model weights
+            const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
             
             try {
+                loadingDiv.innerText = "Downloading AI models...";
+                
+                // Load face detector and age/gender prediction models
                 await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
                 await faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL);
                 
-                loadingDiv.innerText = "Models loaded successfully! Accessing camera...";
-                
+                loadingDiv.innerText = "Models loaded! Starting webcam...";
                 startVideo();
             } catch (error) {
-                loadingDiv.innerText = "Error loading AI models. Check internet connection.";
+                loadingDiv.innerText = "Error loading AI models. See console logs.";
                 console.error("Model loading error:", error);
             }
         }
@@ -147,7 +145,6 @@
             navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
                 .then(stream => {
                     video.srcObject = stream;
-                    loadingDiv.style.display = 'none';
                 })
                 .catch(err => {
                     loadingDiv.style.display = 'block';
@@ -156,7 +153,10 @@
                 });
         }
 
-        video.addEventListener('playing', () => {
+        video.addEventListener('play', () => {
+            loadingDiv.style.display = 'none';
+
+            // Create canvas overlay
             const canvas = faceapi.createCanvasFromMedia(video);
             document.getElementById('container').append(canvas);
             
@@ -164,45 +164,45 @@
             faceapi.matchDimensions(canvas, displaySize);
 
             setInterval(async () => {
-                const detections = await faceapi.detectSingleFace(
+                // Detect face and estimate age/gender
+                const detection = await faceapi.detectSingleFace(
                     video, 
-                    new faceapi.TinyFaceDetectorOptions()
+                    new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
                 ).withAgeAndGender();
 
                 const ctx = canvas.getContext('2d');
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                if (detections) {
-                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                if (detection) {
+                    const resizedDetection = faceapi.resizeResults(detection, displaySize);
                     
-                    // 1. Draw bounding box on face canvas
-                    faceapi.draw.drawDetections(canvas, resizedDetections);
+                    // 1. Draw box on canvas
+                    faceapi.draw.drawDetections(canvas, resizedDetection);
                     
                     // 2. Extract values
-                    const age = Math.round(resizedDetections.age);
-                    const gender = resizedDetections.gender;
-                    const box = resizedDetections.detection.box;
+                    const age = Math.round(resizedDetection.age);
+                    const gender = resizedDetection.gender;
+                    const box = resizedDetection.detection.box;
                     
-                    // 3. Render label directly above the face box on screen
+                    // 3. Render label box above head
                     const drawBox = new faceapi.draw.DrawTextField(
                         [`Age: ${age}`, `Gender: ${gender}`],
                         { x: box.x, y: box.y - 10 }
                     );
                     drawBox.draw(canvas);
 
-                    // 4. Update the HTML card below the video
+                    // 4. Update status card below
                     ageDisplay.innerText = age;
                     genderDisplay.innerText = gender;
                 } else {
-                    // Reset text when no face is in frame
                     ageDisplay.innerText = "--";
                     genderDisplay.innerText = "--";
                 }
-            }, 150); // Runs every 150ms
+            }, 100);
         });
 
-        // Initialize model loading
-        loadModels();
+        // Initialize script
+        init();
     </script>
 </body>
 </html>
